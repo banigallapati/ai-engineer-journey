@@ -25,7 +25,7 @@ Every field is an estimate made by Claude. The `description` on each field is se
 | `fiber_g` | `float` | `>= 0`, defaults to `0.0` | Estimated fiber in grams |
 | `iron_mg` | `float` | `>= 0`, defaults to `0.0` | Estimated iron in milligrams |
 | `has_wheat` | `bool` | Defaults to `False` | `True` if the meal contains wheat. The system prompt asks Claude to flag wheat honestly because of a wheat intolerance. |
-| `is_heavy_meal` | `bool` | Defaults to `False` | `True` if the meal is heavy, defined as 700 calories or more |
+| `is_heavy_meal` | `bool` | Computed from `calories`, not sent by Claude | `True` if the meal has 700 calories or more (threshold is configurable) |
 
 ### `iron_mg`
 
@@ -33,9 +33,28 @@ Added to track iron intake alongside protein and fiber. Because it's part of `Me
 
 ### `is_heavy_meal`
 
-A quick flag for meals of 700 calories or more. Claude sets it based on the field description, so it's a judgment, not a calculation. Nothing in the code checks that it agrees with `calories`, so a 720-calorie meal could in principle come back with `is_heavy_meal=False`.
+A quick flag for meals of 700 calories or more. It's a Pydantic `@computed_field`, calculated from `calories` whenever you read it, so it always agrees with `calories`.
 
-To make it always consistent, compute it from `calories` instead of asking Claude for it, for example with a Pydantic `@computed_field` or a `model_validator` that sets it after validation.
+```python
+class MealLog(BaseModel):
+    HEAVY_MEAL_CALORIES: ClassVar[int] = 700
+    ...
+
+    @computed_field(description=f"True if calories >= {HEAVY_MEAL_CALORIES} (computed, not estimated)")
+    @property
+    def is_heavy_meal(self) -> bool:
+        return self.calories >= self.HEAVY_MEAL_CALORIES
+```
+
+- **Claude never sees it.** Computed fields aren't inputs, so they're left out of the schema `messages.parse` sends. They do appear in `model_dump()` and in the output schema (`model_json_schema(mode="serialization")`), where the description shows up.
+- **The threshold is a class constant.** `ClassVar` tells Pydantic it's not a field. To use a different cut-off, subclass and override it:
+
+  ```python
+  class StrictMealLog(MealLog):
+      HEAVY_MEAL_CALORIES: ClassVar[int] = 500
+  ```
+
+  The description text is filled in when `MealLog` is defined, so a subclass's description still says 700.
 
 ## Setup
 

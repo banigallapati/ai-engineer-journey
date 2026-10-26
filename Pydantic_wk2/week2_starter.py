@@ -20,23 +20,25 @@ from dotenv import load_dotenv
 import os
 import sys
 import time
+from typing import ClassVar
 
 import anthropic
 load_dotenv()
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, computed_field, field_validator
 
 
 class MealLog(BaseModel):
     """Structured nutritional read of one raw meal-log entry."""
+
+    # Calorie cut-off for is_heavy_meal. ClassVar keeps it out of the schema;
+    # subclass and override to change it.
+    HEAVY_MEAL_CALORIES: ClassVar[int] = 700
 
     meal_name: str = Field(description="Short name of the meal, e.g. 'perugu garelu'")
     calories: int = Field(ge=0, description="Estimated total calories")
     protein_g: float = Field(ge=0, description="Estimated protein in grams")
     fiber_g: float = Field(ge=0, default=0.0, description="Estimated fiber in grams")
     has_wheat: bool = Field(default=False, description="True if the meal contains wheat")
-    is_heavy_meal: bool = Field(
-        default=False, description="True if this is a heavy meal (calories >= 700)"
-    )
     iron_mg: float = Field(ge=0, default=0.0, description="Estimated iron in milligrams")
 
     @field_validator("meal_name")
@@ -45,6 +47,13 @@ class MealLog(BaseModel):
         if not v.strip():
             raise ValueError("meal_name must not be empty")
         return v.strip()
+
+    @computed_field(
+        description=f"True if calories >= {HEAVY_MEAL_CALORIES} (computed, not estimated)"
+    )
+    @property
+    def is_heavy_meal(self) -> bool:
+        return self.calories >= self.HEAVY_MEAL_CALORIES
 
 
 # ---- cost model: verified 2026-10-23 against platform.claude.com/docs (Claude Sonnet 5.5) ----
