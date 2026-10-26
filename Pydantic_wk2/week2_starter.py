@@ -37,6 +37,7 @@ class MealLog(BaseModel):
     is_heavy_meal: bool = Field(
         default=False, description="True if this is a heavy meal (calories >= 700)"
     )
+    iron_mg: float = Field(ge=0, default=0.0, description="Estimated iron in milligrams")
 
     @field_validator("meal_name")
     @classmethod
@@ -58,11 +59,11 @@ SYSTEM = (
 )
 
 MEALS = [
-    "pumpkin ravioli with sage, brown butter, amaretti crumbles, plus a tall almond-milk latte (Locanda Verde)",
-    "4 shallow-fried perugu garelu (urad dal vadas) in 3/4 cup plain Greek-yogurt perugu",
-    "3 homemade onion dosas with peanut chutney",
-    "5.3oz cup of Chobani non-fat plain Greek yogurt",
-    "2 jowar rotis, 3/4 cup tamarind rice, 3/4 cup plain Greek yogurt, 3/4 cup cabbage and tomato curry",
+    "2 jowar rotis, 3/4 cup beerakaya dal, 3/4 cup Greek yogurt",
+    "1 cup original almond milk, 1 scoop of whey protein powder",
+    "chickpea, white bean salad with cucumber, lime juice",
+    "3 onion dosas, peanut and coconut chutney",
+    "tempeh & edamame bowl with 1/4 cup of feta",
 ]
 
 
@@ -117,7 +118,8 @@ async def main() -> None:
         total_cost += cost
         print(
             f"[OK {elapsed:4.1f}s] {meal.meal_name}: {meal.calories} cal, "
-            f"{meal.protein_g:.0f}g protein, {meal.fiber_g:.0f}g fiber "
+            f"{meal.protein_g:.0f}g protein, {meal.fiber_g:.0f}g fiber, "
+            f"{meal.iron_mg:.2f}mg iron "
             f"(wheat={meal.has_wheat}, heavy={meal.is_heavy_meal}) | "
             f"{usage.input_tokens}+{usage.output_tokens} tok = ${cost:.4f}"
         )

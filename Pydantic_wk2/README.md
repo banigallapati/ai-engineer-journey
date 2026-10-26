@@ -6,12 +6,36 @@ It builds on the Week 1 AsyncIO tutorial (`asyncio.gather` + `Semaphore`) and ad
 
 ## What it does
 
-1. Defines a `MealLog` Pydantic model: meal name, calories, protein, fiber, whether it contains wheat, and whether it's a heavy meal.
+1. Defines a `MealLog` Pydantic model: meal name, calories, protein, fiber, iron, whether it contains wheat, and whether it's a heavy meal (see [The `MealLog` model](#the-meallog-model)).
 2. Sends all five entries in `MEALS` to `claude-sonnet-5-5` at once. An `asyncio.Semaphore(5)` caps how many run at the same time.
 3. Calls `client.messages.parse(..., output_format=MealLog)`, so Claude's answer comes back as a `MealLog` that has already been checked against the model.
 4. Works out the cost of each call from `resp.usage` and prints a summary line with totals.
 
 Failures don't stop the run. `asyncio.gather(..., return_exceptions=True)` collects them, and each one is labelled `CALL` (the API request failed) or `VALIDATION` (the answer didn't fit the model).
+
+## The `MealLog` model
+
+Every field is an estimate made by Claude. The `description` on each field is sent to Claude as part of the schema, so it doubles as an instruction.
+
+| Field | Type | Rules | Meaning |
+|---|---|---|---|
+| `meal_name` | `str` | Required, can't be blank (whitespace is trimmed) | Short name for the meal |
+| `calories` | `int` | Required, `>= 0` | Estimated total calories |
+| `protein_g` | `float` | Required, `>= 0` | Estimated protein in grams |
+| `fiber_g` | `float` | `>= 0`, defaults to `0.0` | Estimated fiber in grams |
+| `iron_mg` | `float` | `>= 0`, defaults to `0.0` | Estimated iron in milligrams |
+| `has_wheat` | `bool` | Defaults to `False` | `True` if the meal contains wheat. The system prompt asks Claude to flag wheat honestly because of a wheat intolerance. |
+| `is_heavy_meal` | `bool` | Defaults to `False` | `True` if the meal is heavy, defined as 700 calories or more |
+
+### `iron_mg`
+
+Added to track iron intake alongside protein and fiber. Because it's part of `MealLog`, adding the field was all it took: the schema sent to Claude picks it up automatically, and the script prints it with two decimal places.
+
+### `is_heavy_meal`
+
+A quick flag for meals of 700 calories or more. Claude sets it based on the field description, so it's a judgment, not a calculation. Nothing in the code checks that it agrees with `calories`, so a 720-calorie meal could in principle come back with `is_heavy_meal=False`.
+
+To make it always consistent, compute it from `calories` instead of asking Claude for it, for example with a Pydantic `@computed_field` or a `model_validator` that sets it after validation.
 
 ## Setup
 
@@ -31,13 +55,13 @@ Put your API key in a `.env` file at the repo root:
 python Pydantic_wk2/week2_starter.py
 ```
 
-Example output (Oct 23, 2026 run, shortened):
+Example output (Oct 25, 2026 run, shortened):
 
 ```
-[OK  1.9s] pumpkin ravioli ... almond-milk latte: 850 cal, 22g protein, 5g fiber (wheat=True, heavy=True) | 729+87 tok = $0.0023
-[OK  2.0s] Chobani non-fat plain Greek yogurt (5.3 oz cup): 80 cal, 15g protein, 0g fiber (wheat=False, heavy=False) | 706+81 tok = $0.0022
+[OK  4.3s] jowar rotis with beerakaya dal and Greek yogurt: 490 cal, 31g protein, 9g fiber 4.50mg iron (wheat=False, heavy=False) | 790+386 tok = $0.0054
+[OK  1.8s] almond milk protein shake: 160 cal, 27g protein, 1g fiber 1.00mg iron (wheat=False, heavy=False) | 775+71 tok = $0.0023
 ...
-5/5 validated | wall 5.6s | tokens in=3596 out=1345 | total cost $0.0206
+5/5 validated | wall 6.3s | tokens in=3881 out=1404 | total cost $0.0218
 ```
 
 The total time is close to the slowest single call, not the sum of all five. That's the benefit of running them concurrently.
