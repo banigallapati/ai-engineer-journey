@@ -51,7 +51,6 @@ MODEL = "claude-sonnet-5-5"
 
 
 # ---- your data: one raw day, one string per meal entry, in order ----
-# TODO: replace these with a real day from this week before you run it.
 RAW_LOG = [
     "2 eggs omelet with mozzarella, bell peppers, spinach and mushroom",
     "1 cup of almond milk with 1 scoop of whey protein",
