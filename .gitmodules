@@ -1,0 +1,3 @@
+[submodule "huggingface_wk4/First_agent_template"]
+	path = huggingface_wk4/First_agent_template
+	url = https://huggingface.co/spaces/banigallapati/First_agent_template
