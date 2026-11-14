@@ -24,6 +24,13 @@ be a new thing to debug for no gain.
     as it happens, so a wrong run can be read back step by step: was it
     the Thought, the Action, or the Observation that went wrong?
 
+    Fix (Nov 13): an empty model response (0 output tokens) used to be
+    treated as a finished answer -- the loop saw "no tool call" and
+    printed an empty Finish. Now an empty response is retried once per
+    step, and if it is still empty the run stops with a named [ERROR],
+    never a Finish. The transcript also records stop_reason on every
+    step, so the next failure is diagnosable instead of silent.
+
 Tools are plain Python functions, no framework. The three core tools are
 the Week 4 three:
     calculator(expression)  -- safe arithmetic, no eval()
@@ -290,7 +297,9 @@ SYSTEM_PROMPT = (
     "web_search). Use each tool's observation in your final answer and "
     "say which tool each number came from. If a tool returns an ERROR, "
     "say what went wrong in your next Thought and try a corrected call "
-    "once -- do not invent the result the tool would have given."
+    "once -- do not invent the result the tool would have given. "
+    "Always respond with text in every step -- never return an empty "
+    "response."
 )
 
 
@@ -368,18 +377,35 @@ async def run_react(client, question: str, qnum: int, use_fetch: bool) -> float:
               + (", fetch_page" if use_fetch else ""))
 
         for iteration in range(1, MAX_ITERATIONS + 1):
-            start = time.perf_counter()
-            resp = await client.messages.create(
-                model=MODEL,
-                max_tokens=1000,
-                system=SYSTEM_PROMPT,
-                tools=schemas,
-                messages=messages,
-            )
-            elapsed = time.perf_counter() - start
-            total_cost += cost_of(resp.usage)
+            resp = None
+            for attempt in range(1, 3):
+                start = time.perf_counter()
+                resp = await client.messages.create(
+                    model=MODEL,
+                    max_tokens=1000,
+                    system=SYSTEM_PROMPT,
+                    tools=schemas,
+                    messages=messages,
+                )
+                elapsed = time.perf_counter() - start
+                total_cost += cost_of(resp.usage)
+                if resp.content:
+                    break
+                # Empty response: a model hiccup, NOT a finished answer.
+                # Retry once before giving up on the step.
+                write(
+                    f"\n[Step {iteration} attempt {attempt} | {elapsed:.1f}s | "
+                    f"stop={resp.stop_reason} | empty response -- retrying]"
+                )
+            if not resp.content:
+                write(
+                    f"\n[ERROR] model returned an empty response twice "
+                    f"(stop={resp.stop_reason}) -- stopping the run. This is "
+                    "not a finished answer; re-run the question."
+                )
+                break
             write(
-                f"\n[Step {iteration} | {elapsed:.1f}s | "
+                f"\n[Step {iteration} | {elapsed:.1f}s | stop={resp.stop_reason} | "
                 f"{resp.usage.input_tokens}+{resp.usage.output_tokens} tok = "
                 f"${cost_of(resp.usage):.4f}]"
             )
