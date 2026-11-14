@@ -103,6 +103,7 @@ QUESTIONS = {
     3: "How many days are there between today and Christmas Day 2026, and what is that number times 7?",
     4: "In what year was the Eiffel Tower completed, and how many years ago was that?",
     5: "Search for the current population of Mumbai, then tell me whether it is more than double the population of Paris, and by how much.",
+    6: "What is the current Hugging Face AI Agents Course Unit 1 about — give me the section headings?"
 }
 
 
@@ -283,11 +284,10 @@ FETCH_PAGE_SCHEMA = {
 }
 
 SYSTEM_PROMPT = (
-    "You are a ReAct agent: you solve questions by interleaving reasoning "
-    "and acting. At every step, first write your Thought in plain text: "
-    "what you know so far, what information you still need, and what you "
-    "will do next. Then either call a tool (Action) or give your final "
-    "answer. "
+    "You answer questions by alternating between short notes to the user "
+    "and tool calls. Before each tool call, write one or two sentences "
+    "telling the user what you are about to look up or calculate and why. "
+    "Then either call a tool or give your final answer. "
     "If the answer is static knowledge you are confident about, answer "
     "directly with no tool call at all. If anything is dynamic -- a "
     "current fact, a population, today's date, any arithmetic -- you must "
@@ -296,7 +296,7 @@ SYSTEM_PROMPT = (
     "current_datetime), and never state a live fact from memory (use "
     "web_search). Use each tool's observation in your final answer and "
     "say which tool each number came from. If a tool returns an ERROR, "
-    "say what went wrong in your next Thought and try a corrected call "
+    "tell the user what went wrong and try a corrected call "
     "once -- do not invent the result the tool would have given. "
     "Always respond with text in every step -- never return an empty "
     "response."
@@ -380,12 +380,16 @@ async def run_react(client, question: str, qnum: int, use_fetch: bool) -> float:
             resp = None
             for attempt in range(1, 3):
                 start = time.perf_counter()
-                resp = await client.messages.create(
+                resp = await client.beta.messages.create(
                     model=MODEL,
                     max_tokens=1000,
                     system=SYSTEM_PROMPT,
                     tools=schemas,
                     messages=messages,
+                    # "updates" returns short progress notes between tool calls
+                    # as thinking blocks (beta); the full reasoning stays hidden
+                    thinking={"type": "adaptive", "display": "updates"},
+                    betas=["thinking-display-updates-2026-08-18"],
                 )
                 elapsed = time.perf_counter() - start
                 total_cost += cost_of(resp.usage)
@@ -395,12 +399,14 @@ async def run_react(client, question: str, qnum: int, use_fetch: bool) -> float:
                 # Retry once before giving up on the step.
                 write(
                     f"\n[Step {iteration} attempt {attempt} | {elapsed:.1f}s | "
-                    f"stop={resp.stop_reason} | empty response -- retrying]"
+                    f"stop={resp.stop_reason} | details={resp.stop_details} | "
+                    "empty response -- retrying]"
                 )
             if not resp.content:
                 write(
                     f"\n[ERROR] model returned an empty response twice "
-                    f"(stop={resp.stop_reason}) -- stopping the run. This is "
+                    f"(stop={resp.stop_reason}, details={resp.stop_details}) -- "
+                    "stopping the run. This is "
                     "not a finished answer; re-run the question."
                 )
                 break
@@ -409,6 +415,11 @@ async def run_react(client, question: str, qnum: int, use_fetch: bool) -> float:
                 f"{resp.usage.input_tokens}+{resp.usage.output_tokens} tok = "
                 f"${cost_of(resp.usage):.4f}]"
             )
+
+            for b in resp.content:
+                if b.type == "thinking" and b.thinking:
+                    # Progress note from thinking display "updates"
+                    write(f"Update: {b.thinking.strip()}")
 
             tool_uses = [b for b in resp.content if b.type == "tool_use"]
             text_parts = [b.text for b in resp.content if b.type == "text"]
@@ -468,8 +479,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Week 5: hand-rolled ReAct loop")
     parser.add_argument("--test-tools", action="store_true",
                         help="check the tools with no API call")
-    parser.add_argument("--question", type=int, choices=range(1, 6),
-                        help="run one question (1-5); default runs all five")
+    parser.add_argument("--question", type=int, choices=range(1, 7),
+                        help="run one question (1-6); default runs all six")
     parser.add_argument("--fetch", action="store_true",
                         help="enable the stretch fetch_page tool")
     parsed = parser.parse_args()
